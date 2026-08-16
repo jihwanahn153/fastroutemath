@@ -424,6 +424,130 @@ body::after {
   overflow-x: auto;
 }
 
+
+/* 예시 칩 · 토글 */
+.row-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  color: var(--bronze);
+  margin: 16px 0 7px;
+}
+.key-example {
+  font-family: var(--sans);
+  color: var(--travertine);
+  border-style: dashed;
+  max-width: 100%;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.45;
+}
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 20px;
+  padding: 12px 14px;
+  border: 1px solid rgba(201, 160, 99, 0.2);
+  background: rgba(201, 160, 99, 0.04);
+  cursor: pointer;
+  font-size: 12.8px;
+  color: var(--travertine);
+}
+.toggle input { margin-top: 2px; accent-color: var(--brass); flex-shrink: 0; }
+.toggle em {
+  display: block;
+  font-style: normal;
+  font-size: 11.3px;
+  color: var(--travertine-dim);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+/* 결과 부가 섹션 (상위 과정 · 진법 · 트리) */
+.extra {
+  margin-top: 26px;
+  border: 1px solid rgba(201, 160, 99, 0.2);
+  border-top: 2px solid var(--bronze);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 22px 24px 24px;
+}
+.extra-head { margin-bottom: 16px; }
+.extra-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  color: var(--walnut-deep);
+  background: var(--brass);
+  padding: 3px 9px;
+  margin-bottom: 9px;
+}
+.extra-title {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--glow);
+  margin: 0;
+  line-height: 1.45;
+}
+.need-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1px;
+  background: rgba(201, 160, 99, 0.16);
+  border: 1px solid rgba(201, 160, 99, 0.16);
+  margin-bottom: 18px;
+}
+.need { background: var(--walnut); padding: 12px 14px; }
+.need-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--brass-hot);
+  margin-bottom: 4px;
+}
+.need-desc { font-size: 11.8px; color: var(--travertine-dim); line-height: 1.6; }
+.extra-body {
+  font-size: 13.5px;
+  line-height: 2.15;
+  color: var(--travertine);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.extra-why {
+  margin-top: 18px;
+  border-left: 2px solid var(--bronze);
+  padding: 2px 0 2px 14px;
+}
+.extra-why-text {
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--travertine-dim);
+  white-space: pre-wrap;
+}
+
+/* 항 매핑 트리 */
+.tree-note { font-size: 12.5px; color: var(--travertine-dim); margin: 0 0 14px; line-height: 2; }
+.tree-scroll { overflow-x: auto; padding-bottom: 6px; }
+.tree-edge { stroke: var(--bronze); stroke-width: 1; }
+.tree-node {
+  fill: var(--walnut-lift);
+  stroke: rgba(201, 160, 99, 0.5);
+  stroke-width: 1;
+}
+.tree-node-root { fill: #3a2d1d; stroke: var(--brass-hot); stroke-width: 1.5; }
+.tree-label {
+  fill: var(--glow);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.tree-legend {
+  font-size: 11.3px;
+  color: #7d7362;
+  margin: 12px 0 0;
+  line-height: 1.65;
+}
+
 /* 판독 확인 */
 .confirm-head {
   text-align: center;
@@ -729,6 +853,8 @@ body::after {
   .confirm-grid { grid-template-columns: 1fr; }
   .confirm-shot img { max-height: 200px; }
   .confirm-field { min-height: 170px; }
+  .extra { padding: 16px; }
+  .need-list { grid-template-columns: 1fr; }
   .crophint { font-size: 10.5px; white-space: normal; width: 84%; text-align: center; }
 }
 

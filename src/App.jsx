@@ -163,9 +163,146 @@ async function prepareImage(dataUrl, crop) {
   return c.toDataURL("image/jpeg", JPEG_QUALITY).split(",")[1];
 }
 
+/* ---------- 항 매핑 트리 ---------- */
+
+// 인덱스가 2배(또는 3배) 구조로 갈라지는 수열은 트리로 보면 구조가 한눈에 보인다.
+// 진법 b에서 인덱스 k의 부모는 항상 floor(k / b) 이다.
+//   2진법: k의 자식은 2k, 2k+1
+//   3진법: k의 자식은 3k, 3k+1, 3k+2
+function buildTree(raw, base) {
+  const nodes = new Map();
+  for (const line of String(raw || "").split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    const bar = t.indexOf("|");
+    const idxText = bar === -1 ? t : t.slice(0, bar);
+    const idx = parseInt(String(idxText).replace(/[^0-9]/g, ""), 10);
+    if (!Number.isFinite(idx) || idx < 1) continue;
+    const label = bar === -1 ? `a${idx}` : t.slice(bar + 1).trim() || `a${idx}`;
+    nodes.set(idx, { index: idx, label, children: [] });
+  }
+  if (nodes.size === 0) return null;
+
+  // 부모 연결. 부모가 목록에 없으면 그 노드가 뿌리가 된다.
+  const roots = [];
+  for (const idx of [...nodes.keys()].sort((a, b) => a - b)) {
+    const parentIdx = Math.floor(idx / base);
+    const node = nodes.get(idx);
+    if (parentIdx >= 1 && parentIdx !== idx && nodes.has(parentIdx)) {
+      node.parent = parentIdx;
+      nodes.get(parentIdx).children.push(idx);
+    } else {
+      node.parent = null;
+      roots.push(idx);
+    }
+  }
+  for (const n of nodes.values()) n.children.sort((a, b) => a - b);
+
+  // 깊이 계산
+  let maxDepth = 0;
+  const setDepth = (idx, d) => {
+    if (d > 24) return;
+    const n = nodes.get(idx);
+    n.depth = d;
+    maxDepth = Math.max(maxDepth, d);
+    for (const c of n.children) setDepth(c, d + 1);
+  };
+  roots.forEach((r) => setDepth(r, 0));
+
+  // 가로 위치: 잎은 순서대로 한 칸씩, 부모는 자식들의 가운데
+  let slot = 0;
+  const place = (idx) => {
+    const n = nodes.get(idx);
+    if (n.children.length === 0) {
+      n.slot = slot;
+      slot += 1;
+      return;
+    }
+    n.children.forEach(place);
+    const first = nodes.get(n.children[0]).slot;
+    const last = nodes.get(n.children[n.children.length - 1]).slot;
+    n.slot = (first + last) / 2;
+  };
+  roots.forEach((r) => {
+    place(r);
+    slot += 1; // 뿌리가 여러 개면 사이를 띄운다
+  });
+
+  return { nodes, roots, maxDepth, slots: Math.max(slot, 1) };
+}
+
+function TermTree({ raw, base, note }) {
+  const tree = buildTree(raw, base);
+  if (!tree) return null;
+
+  const stepX = 96;
+  const rowH = 82;
+  const nodeW = 82;
+  const nodeH = 30;
+  const padX = 24;
+  const width = Math.max(tree.slots * stepX + padX * 2, 320);
+  const height = (tree.maxDepth + 1) * rowH + 24;
+
+  const xOf = (n) => padX + nodeW / 2 + n.slot * stepX;
+  const yOf = (n) => 28 + n.depth * rowH;
+  const all = [...tree.nodes.values()];
+
+  return (
+    <div className="treewrap">
+      {note && <Tex className="tree-note">{note}</Tex>}
+      <div className="tree-scroll">
+        <svg width={width} height={height} role="img" aria-label="수열 항 매핑 트리">
+          {all.map((n) =>
+            n.children.map((c) => {
+              const child = tree.nodes.get(c);
+              return (
+                <line
+                  key={`e${n.index}-${c}`}
+                  x1={xOf(n)}
+                  y1={yOf(n) + nodeH / 2}
+                  x2={xOf(child)}
+                  y2={yOf(child) - nodeH / 2}
+                  className="tree-edge"
+                />
+              );
+            })
+          )}
+          {all.map((n) => (
+            <g key={`n${n.index}`}>
+              <rect
+                x={xOf(n) - nodeW / 2}
+                y={yOf(n) - nodeH / 2}
+                width={nodeW}
+                height={nodeH}
+                className={n.parent === null ? "tree-node tree-node-root" : "tree-node"}
+              />
+              <text x={xOf(n)} y={yOf(n) + 4} className="tree-label" textAnchor="middle">
+                {n.label}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+      <p className="tree-legend">
+        {base === 3
+          ? "인덱스 k의 자식은 3k, 3k+1, 3k+2 입니다."
+          : "인덱스 k의 자식은 2k(왼쪽), 2k+1(오른쪽) 입니다."}{" "}
+        한 칸 내려갈 때마다 인덱스가 {base}배씩 커집니다.
+      </p>
+    </div>
+  );
+}
+
 /* ---------- 수식 입력 도우미 ---------- */
 
 // 라벨, 넣을 LaTeX, 커서를 되돌릴 칸 수
+const EXAMPLES = [
+  "x세제곱 빼기 3x 더하기 1 의 극댓값과 극솟값의 합",
+  "리미트 x가 0으로 갈 때 sin3x 분의 x",
+  "a2n+1 = an + 2, a1 = 1 일 때 a13 은?",
+  "루트2 더하기 루트3 의 제곱",
+];
+
 const SYMBOLS = [
   ["분수", "\\dfrac{}{}", 3],
   ["지수", "^{}", 1],
@@ -377,6 +514,7 @@ export default function App() {
   const [solution, setSolution] = useState(null);
   const [ledger, setLedger] = useState([]);
   const [showLedger, setShowLedger] = useState(false);
+  const [withAdvanced, setWithAdvanced] = useState(true);
   const fileRef = useRef(null);
   const textRef = useRef(null);
 
@@ -493,7 +631,12 @@ export default function App() {
       const res = await fetch("/api/solve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: problemText, image: image || null, figureNote: figureNote || "" }),
+        body: JSON.stringify({
+          text: problemText,
+          image: image || null,
+          figureNote: figureNote || "",
+          advanced: withAdvanced,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `풀이를 가져오지 못했습니다 (${res.status})`);
@@ -650,6 +793,71 @@ export default function App() {
               </div>
             )}
 
+            {solution.advtitle && solution.advtitle !== "없음" && solution.advbody ? (
+              <section className="extra">
+                <div className="extra-head">
+                  <span className="extra-tag">상위 교육과정</span>
+                  <h3 className="extra-title">{solution.advtitle}</h3>
+                </div>
+
+                {solution.advneed && (
+                  <div className="need-list">
+                    {solution.advneed
+                      .split(/\r?\n/)
+                      .map((l) => l.trim())
+                      .filter(Boolean)
+                      .map((line, i) => {
+                        const bar = line.indexOf("|");
+                        const name = bar === -1 ? line : line.slice(0, bar).trim();
+                        const desc = bar === -1 ? "" : line.slice(bar + 1).trim();
+                        return (
+                          <div className="need" key={i}>
+                            <div className="need-name">{name}</div>
+                            {desc && <Tex className="need-desc">{desc}</Tex>}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+
+                <Tex className="extra-body">{solution.advbody}</Tex>
+                {solution.advwhy && (
+                  <div className="extra-why">
+                    <div className="aside-label">고교 풀이와의 연결</div>
+                    <Tex className="extra-why-text">{solution.advwhy}</Tex>
+                  </div>
+                )}
+              </section>
+            ) : null}
+
+            {solution.base && solution.basebody ? (
+              <section className="extra">
+                <div className="extra-head">
+                  <span className="extra-tag">{solution.base}진법 풀이</span>
+                  <h3 className="extra-title">
+                    인덱스를 {solution.base}진법으로 읽기
+                  </h3>
+                </div>
+                <Tex className="extra-body">{solution.basebody}</Tex>
+              </section>
+            ) : null}
+
+            {solution.tree ? (
+              <section className="extra">
+                <div className="extra-head">
+                  <span className="extra-tag">항 매핑</span>
+                  <h3 className="extra-title">
+                    {Number(solution.base) === 3 ? "삼진 트리" : "이진 트리"}로 본 항의 구조
+                  </h3>
+                </div>
+                <TermTree
+                  raw={solution.tree}
+                  base={Number(solution.base) === 3 ? 3 : 2}
+                  note={solution.treenote}
+                />
+              </section>
+            ) : null}
+
             <button className="again" onClick={reset}>
               다음 문제 풀기
             </button>
@@ -734,11 +942,26 @@ export default function App() {
                       className="field"
                       value={text}
                       onChange={(e) => setText(e.target.value)}
-                      placeholder={"예) 함수 f(x)=x^3-3x^2+4 의 극댓값과 극솟값의 합을 구하시오.\n\n편한 대로 써도 되고, 아래 버튼으로 수식을 넣어도 됩니다."}
+                      placeholder={"말하듯이 편하게 쓰세요.\n\n예) x세제곱 빼기 3x 더하기 1 의 극댓값과 극솟값의 합\n예) 리미트 x가 0으로 갈 때 2분의 sin3x 분의 x\n예) a2n+1 = a n + 2 이고 a1 = 1 일 때 a13"}
                       onKeyDown={(e) => {
                         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitFromInput();
                       }}
                     />
+                    <div className="row-label">이렇게 써도 됩니다 — 눌러서 채워보세요</div>
+                    <div className="palette">
+                      {EXAMPLES.map((ex) => (
+                        <button
+                          key={ex}
+                          type="button"
+                          className="key key-example"
+                          onClick={() => setText(ex)}
+                        >
+                          {ex}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="row-label">수식 기호 넣기 (몰라도 됩니다)</div>
                     <div className="palette">
                       {SYMBOLS.map(([label, snippet, back]) => (
                         <button
@@ -760,8 +983,8 @@ export default function App() {
                       </>
                     )}
                     <p className="hint">
-                      <code>Ctrl</code> + <code>Enter</code> 로 바로 시작합니다. 수식을 넣으면
-                      <code>$</code> 사이가 자동으로 렌더되어 눈으로 확인할 수 있습니다.
+                      기호를 몰라도 됩니다. 한글로 풀어 써도 알아듣고, 다음 화면에서 제대로
+                      읽었는지 보여드립니다. <code>Ctrl</code> + <code>Enter</code> 로 바로 시작합니다.
                     </p>
                   </>
                 ) : (
@@ -808,6 +1031,18 @@ export default function App() {
                     <p className="hint">또렷하게 찍고, 문제 하나만 드래그로 지정하면 판독이 훨씬 정확해집니다.</p>
                   </>
                 )}
+
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={withAdvanced}
+                    onChange={(e) => setWithAdvanced(e.target.checked)}
+                  />
+                  <span>
+                    상위 교육과정 풀이도 함께 보기
+                    <em>대학 과정 도구로 푸는 방법을 고교 수준으로 풀어서 설명합니다</em>
+                  </span>
+                </label>
 
                 {error && <div className="notice">{error}</div>}
 
