@@ -52,6 +52,31 @@ const MIME = {
   ".ttf": "font/ttf",
 };
 
+const READ_SYSTEM = `너는 한국 수능·내신 수학 시험지를 판독하는 전문가다.
+지금은 문제를 "푸는" 단계가 아니다. 오직 정확히 옮겨 적는 것만 한다.
+
+판독 규칙:
+- 사진에 여러 문제가 보이면, 가장 중앙에 크게 잡힌 문제 하나만 옮긴다.
+  손가락으로 가리키거나 표시된 문제가 있으면 그것을 우선한다.
+- 수식은 LaTeX로 옮기고 달러 기호로 감싼다. 예: $\\displaystyle\\lim_{x \\to 0}$
+- 한국 시험지 관례를 그대로 살린다.
+  · 선택지는 ① ② ③ ④ ⑤ 기호를 유지한다
+  · 조건 상자는 (가) (나) (다) 로 표기한다
+  · 배점 [3점] [4점] 이 보이면 함께 적는다
+- 첨자와 지수를 특히 조심한다. $a_n$ 과 $a^n$, $x_1$ 과 $x^1$ 을 혼동하지 않는다.
+- 분수는 $\\dfrac{}{}$, 적분 구간, 시그마의 위아래 범위를 빠뜨리지 않는다.
+- 학생이 연필로 쓴 풀이 흔적은 문제가 아니다. 인쇄된 문제만 옮긴다.
+- 글자가 잘렸거나 흐려서 확신이 없으면 추측해서 채우지 말고 unclear에 적는다.
+
+반드시 아래 JSON 객체 하나만 출력한다. 코드펜스나 설명을 붙이지 않는다.
+{
+  "transcription": "문제 전문. 발문·조건·선택지를 모두 포함해 원문 그대로 (LaTeX 포함)",
+  "hasFigure": true 또는 false,
+  "figureNote": "그림·그래프·도형이 있으면 무엇이 어떻게 그려져 있는지 구체적으로. 없으면 빈 문자열",
+  "confidence": "high" 또는 "medium" 또는 "low",
+  "unclear": "판독이 애매한 부분. 없으면 빈 문자열"
+}`;
+
 const SOLVE_SYSTEM = `너는 한국 수능·내신 수학 문제를 "가장 빠른 경로"로 푸는 전문 강사다.
 
 원칙:
@@ -80,7 +105,7 @@ const SOLVE_SYSTEM = `너는 한국 수능·내신 수학 문제를 "가장 빠�
 steps는 3~6개로 제한한다. 문제가 불분명하면 problem에 무엇이 불분명한지 적고
 steps는 빈 배열, answer는 "판독 불가"로 둔다.`;
 
-async function callAnthropic(content) {
+async function callAnthropic(content, system, maxTokens) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     const e = new Error(
@@ -98,8 +123,8 @@ async function callAnthropic(content) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 3000,
-      system: SOLVE_SYSTEM,
+      max_tokens: maxTokens || 3000,
+      system: system || SOLVE_SYSTEM,
       messages: [{ role: "user", content }],
     }),
   });
@@ -168,28 +193,65 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 1단계 — 사진에서 문제를 옮겨 적기만 한다 (풀지 않는다)
+  if (req.url === "/api/read" && req.method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req));
+      if (!body.image) {
+        json(res, 400, { error: "사진이 없습니다. 다시 올려주세요." });
+        return;
+      }
+      const content = [
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: body.image } },
+        {
+          type: "text",
+          text:
+            "이 사진에 인쇄된 수학 문제를 규칙에 따라 정확히 옮겨 적어라. 절대 풀지 마라." +
+            (body.hint ? `\n사용자 메모: ${body.hint}` : ""),
+        },
+      ];
+      const text = await callAnthropic(content, READ_SYSTEM, 1500);
+      json(res, 200, { text });
+    } catch (e) {
+      json(res, e.status || 500, { error: e.message || "사진을 읽지 못했습니다." });
+    }
+    return;
+  }
+
+  // 2단계 — 확정된 문제를 가장 빠른 경로로 푼다
   if (req.url === "/api/solve" && req.method === "POST") {
     try {
       const body = JSON.parse(await readBody(req));
+      const problem = (body.text || "").trim();
+      if (!problem && !body.image) {
+        json(res, 400, { error: "문제를 입력하거나 사진을 올려주세요." });
+        return;
+      }
+
       const content = [];
+      // 그림·그래프가 있는 문제는 원본 사진을 함께 넘겨야 정확하다
       if (body.image) {
         content.push({
           type: "image",
           source: { type: "base64", media_type: "image/jpeg", data: body.image },
         });
       }
-      const note = (body.text || "").trim();
-      content.push({
-        type: "text",
-        text: body.image
-          ? `사진 속 수학 문제를 가장 빠른 경로로 풀어라.${note ? `\n추가 요청: ${note}` : ""}`
-          : `다음 수학 문제를 가장 빠른 경로로 풀어라.\n\n${note}`,
-      });
-      if (!body.image && !note) {
-        json(res, 400, { error: "문제를 입력하거나 사진을 올려주세요." });
-        return;
+
+      let instruction;
+      if (problem && body.image) {
+        instruction =
+          `다음은 사진 속 문제를 학생이 확인한 최종 문제다. 문자와 수식은 이 텍스트를 정본으로 삼고,` +
+          ` 그림·그래프·도형이 필요하면 사진을 참고해라.\n\n${problem}` +
+          (body.figureNote ? `\n\n[그림 설명] ${body.figureNote}` : "") +
+          `\n\n이 문제를 가장 빠른 경로로 풀어라.`;
+      } else if (problem) {
+        instruction = `다음 수학 문제를 가장 빠른 경로로 풀어라.\n\n${problem}`;
+      } else {
+        instruction = "사진 속 수학 문제를 가장 빠른 경로로 풀어라.";
       }
-      const text = await callAnthropic(content);
+      content.push({ type: "text", text: instruction });
+
+      const text = await callAnthropic(content, SOLVE_SYSTEM, 3000);
       json(res, 200, { text });
     } catch (e) {
       json(res, e.status || 500, { error: e.message || "풀이를 가져오지 못했습니다." });

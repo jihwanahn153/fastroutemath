@@ -331,6 +331,134 @@ body::after {
 }
 .preview-clear:hover { border-color: var(--brass); color: var(--brass-hot); }
 
+/* 영역 자르기 */
+.cropwrap {
+  position: relative;
+  border: 1px solid rgba(201, 160, 99, 0.22);
+  background: #120e0a;
+  line-height: 0;
+}
+.cropwrap img {
+  width: 100%;
+  display: block;
+  max-height: 400px;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.croplayer {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+  overflow: hidden;
+}
+.cropbox {
+  position: absolute;
+  border: 1.5px solid var(--brass-hot);
+  box-shadow: 0 0 0 9999px rgba(12, 9, 6, 0.58), 0 0 18px rgba(233, 200, 141, 0.35);
+  background: transparent;
+}
+.crophint {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  background: rgba(12, 9, 6, 0.82);
+  border: 1px solid var(--bronze);
+  color: var(--travertine);
+  font-size: 11.5px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  padding: 6px 13px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.croptools {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.chip {
+  background: none;
+  border: 1px solid var(--bronze);
+  color: var(--travertine-dim);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  padding: 6px 13px;
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--brass); color: var(--brass-hot); }
+.chip-static { cursor: default; color: #7d7362; border-style: dashed; }
+.chip-static:hover { border-color: var(--bronze); color: #7d7362; }
+
+/* 판독 확인 */
+.confirm-head {
+  text-align: center;
+  font-family: var(--serif);
+  font-size: clamp(20px, 3.4vw, 27px);
+  font-weight: 700;
+  color: var(--glow);
+  margin: 0 0 8px;
+}
+.confirm-sub {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--travertine-dim);
+  margin: 0 auto 22px;
+  max-width: 520px;
+}
+.flag {
+  border-left: 2px solid var(--brass);
+  background: rgba(201, 160, 99, 0.09);
+  color: var(--travertine);
+  font-size: 12.5px;
+  padding: 11px 14px;
+  margin-bottom: 18px;
+}
+.flag b { color: var(--brass-hot); }
+.confirm-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.confirm-shot {
+  border: 1px solid rgba(201, 160, 99, 0.22);
+  background: #120e0a;
+  line-height: 0;
+}
+.confirm-shot img {
+  width: 100%;
+  display: block;
+  max-height: 260px;
+  object-fit: contain;
+}
+.confirm-field {
+  min-height: 218px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.85;
+}
+.preview-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--bronze);
+  margin: 24px 0 8px;
+}
+.confirm-preview {
+  border: 1px solid rgba(201, 160, 99, 0.18);
+  background: rgba(0, 0, 0, 0.26);
+  padding: 18px 18px 20px;
+  font-size: 14px;
+  line-height: 2.7;
+  color: var(--glow);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
 .solve-btn {
   margin-top: 18px;
   width: 100%;
@@ -564,6 +692,10 @@ body::after {
   .oculus-ring.r4 { height: 24px; }
   .tread { padding-left: 16px; }
   .ledger-time { width: 62px; }
+  .confirm-grid { grid-template-columns: 1fr; }
+  .confirm-shot img { max-height: 200px; }
+  .confirm-field { min-height: 170px; }
+  .crophint { font-size: 10.5px; white-space: normal; width: 84%; text-align: center; }
 }
 
 @media (prefers-reduced-motion: reduce) {
