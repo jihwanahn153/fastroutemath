@@ -52,58 +52,129 @@ const MIME = {
   ".ttf": "font/ttf",
 };
 
+// LaTeX는 백슬래시가 많아 JSON 문자열로 주고받으면 깨진다.
+// (\\lim -> 파싱 실패, \\to -> 탭 문자로 변질)
+// 그래서 이스케이프가 필요 없는 블록 구분자 형식을 쓴다.
+
 const READ_SYSTEM = `너는 한국 수능·내신 수학 시험지를 판독하는 전문가다.
 지금은 문제를 "푸는" 단계가 아니다. 오직 정확히 옮겨 적는 것만 한다.
 
 판독 규칙:
-- 사진에 여러 문제가 보이면, 가장 중앙에 크게 잡힌 문제 하나만 옮긴다.
-  손가락으로 가리키거나 표시된 문제가 있으면 그것을 우선한다.
-- 수식은 LaTeX로 옮기고 달러 기호로 감싼다. 예: $\\displaystyle\\lim_{x \\to 0}$
+- 사진에 여러 문제가 보이면 가장 중앙에 크게 잡힌 문제 하나만 옮긴다.
+- 화면 캡처처럼 이미 깨끗하게 조판된 수식 이미지도 똑같이 그대로 옮긴다.
+- 수식은 LaTeX로 옮기고 달러 기호로 감싼다.
 - 한국 시험지 관례를 그대로 살린다.
   · 선택지는 ① ② ③ ④ ⑤ 기호를 유지한다
-  · 조건 상자는 (가) (나) (다) 로 표기한다
+  · 조건 상자는 (가) (나) (다) 로 표기하고 상자 안 내용을 빠짐없이 옮긴다
   · 배점 [3점] [4점] 이 보이면 함께 적는다
-- 첨자와 지수를 특히 조심한다. $a_n$ 과 $a^n$, $x_1$ 과 $x^1$ 을 혼동하지 않는다.
-- 분수는 $\\dfrac{}{}$, 적분 구간, 시그마의 위아래 범위를 빠뜨리지 않는다.
+  · "단, ~이다" 같은 단서 조항을 절대 빠뜨리지 않는다
+- 첨자와 지수를 특히 조심한다. $a_n$ 과 $a^n$, $f'(x)$ 와 $f(x)$ 를 혼동하지 않는다.
+- 극한의 방향(좌극한 $h \\to 0-$ 인지 우극한 $h \\to 0+$ 인지), 부등호의 등호 포함 여부,
+  구간이 열린 구간인지 닫힌 구간인지를 정확히 구분한다.
+- 분수, 적분 구간, 시그마의 위아래 범위를 빠뜨리지 않는다.
 - 학생이 연필로 쓴 풀이 흔적은 문제가 아니다. 인쇄된 문제만 옮긴다.
-- 글자가 잘렸거나 흐려서 확신이 없으면 추측해서 채우지 말고 unclear에 적는다.
+- 흐려서 확신이 없으면 추측해 채우지 말고 UNCLEAR에 적는다.
 
-반드시 아래 JSON 객체 하나만 출력한다. 코드펜스나 설명을 붙이지 않는다.
-{
-  "transcription": "문제 전문. 발문·조건·선택지를 모두 포함해 원문 그대로 (LaTeX 포함)",
-  "hasFigure": true 또는 false,
-  "figureNote": "그림·그래프·도형이 있으면 무엇이 어떻게 그려져 있는지 구체적으로. 없으면 빈 문자열",
-  "confidence": "high" 또는 "medium" 또는 "low",
-  "unclear": "판독이 애매한 부분. 없으면 빈 문자열"
-}`;
+아래 형식 그대로 출력한다. JSON을 쓰지 마라. 백슬래시를 이스케이프하지 마라.
+LaTeX는 평소 쓰는 그대로 적으면 된다.
 
-const SOLVE_SYSTEM = `너는 한국 수능·내신 수학 문제를 "가장 빠른 경로"로 푸는 전문 강사다.
+@@TRANSCRIPTION
+(문제 전문. 발문·조건 상자·선택지·단서를 모두 포함해 원문 그대로. 줄바꿈 자유)
+@@FIGURE
+(그림·그래프·도형이 있으면 yes, 없으면 no)
+@@FIGURENOTE
+(그림이 있으면 무엇이 어떻게 그려져 있는지 구체적으로. 없으면 비워둔다)
+@@CONFIDENCE
+(high 또는 medium 또는 low)
+@@UNCLEAR
+(판독이 애매한 부분. 없으면 비워둔다)
+@@END`;
 
-원칙:
-- 정석 풀이가 아니라 실전에서 시간을 가장 아끼는 경로를 제시한다.
-- 대칭성, 특수값 대입, 그래프 개형, 선택지 소거, 치환, 극한의 차수 비교처럼
-  계산량을 줄이는 관찰을 우선한다.
+const NORMALIZE_SYSTEM = `너는 학생이 키보드로 입력한 수학 문제를 정식 표기로 다듬는 조교다.
+지금은 푸는 단계가 아니다. 학생이 의도한 바를 정확한 수식으로 옮기기만 한다.
+
+규칙:
+- 학생의 대충 쓴 표기를 표준 LaTeX로 바꾼다.
+  예: x^2 -> $x^2$,  lim x->0 -> $\\lim_{x \\to 0}$,  integral -> $\\int$,  root3 -> $\\sqrt{3}$
+- 이미 LaTeX로 쓴 부분은 그대로 살린다.
+- 문제의 뜻을 바꾸지 않는다. 조건을 추가하거나 빼지 않는다.
+- 해석이 갈리는 표기가 있으면 가장 자연스러운 쪽으로 적되 UNCLEAR에 무엇이 애매한지 밝힌다.
+  예: 1/2x 는 $\\dfrac{1}{2}x$ 로 볼지 $\\dfrac{1}{2x}$ 로 볼지 애매하다.
+- 문제로 보기 어려운 입력이면 UNCLEAR에 그렇게 적는다.
+
+아래 형식 그대로 출력한다. JSON을 쓰지 마라. 백슬래시를 이스케이프하지 마라.
+
+@@TRANSCRIPTION
+(정리된 문제 전문)
+@@FIGURE
+no
+@@FIGURENOTE
+
+@@CONFIDENCE
+(high 또는 medium 또는 low)
+@@UNCLEAR
+(해석이 애매한 부분. 없으면 비워둔다)
+@@END`;
+
+const SOLVE_SYSTEM = `너는 한국 수능·내신 수학 문제를 푸는 전문 강사다.
+
+가장 중요한 원칙 — 순서를 지켜라.
+1) 답이 맞는 것이 최우선이다.
+2) 그 다음으로, 실전에서 시간을 아끼는 경로를 고른다.
+빠른 풀이를 보여주려다 틀린 답을 내는 것은 최악이다. 어려운 문제라면 단계가 늘어나도 좋다.
+
+먼저 SCRATCH 칸에서 충분히 계산하라. 이 칸은 학생에게 보이지 않으므로
+길게 써도 되고, 시행착오를 적어도 되고, 여러 접근을 비교해도 된다.
+SCRATCH에서 반드시 다음을 수행한다.
+- 문제의 모든 조건을 하나씩 식으로 옮겼는지 확인한다. 특히 조건 상자 (가)(나)와
+  "단, ~이다" 단서를 빠뜨리지 않았는지 점검한다.
+- 답을 구한 뒤 검산한다. 원식에 대입해 보거나, 특수값을 넣어 보거나,
+  차수·부호·정의역을 확인하거나, 선택지가 있으면 대조한다.
+- 검산에서 어긋나면 다시 계산한다. 어긋난 채로 답을 쓰지 마라.
+
+그 다음 학생에게 보여줄 풀이를 쓴다.
 - 단계는 실제로 손으로 쓰는 순서대로, 군더더기 없이 쓴다.
-- 수식은 반드시 LaTeX로 쓰고 달러 기호로 감싼다. 예: $x^2+1$
-- 한국 고등학생이 읽는다. 존댓말 대신 간결한 서술체로 쓴다.
+- 계산량을 줄이는 관찰(대칭성, 특수값 대입, 그래프 개형, 치환, 차수 비교, 선택지 소거)이
+  있으면 그것을 앞세운다. 없으면 정공법으로 간다.
+- 수식은 LaTeX로 쓰고 달러 기호로 감싼다.
+- 한국 고등학생이 읽는다. 간결한 서술체로 쓴다.
 
-반드시 아래 JSON 객체 하나만 출력한다. 코드펜스, 설명, 인사말을 절대 붙이지 않는다.
-{
-  "problem": "문제를 한 줄로 정리 (60자 이내)",
-  "topic": "단원명 (예: 미적분 - 접선의 방정식)",
-  "insight": "이 문제를 빠르게 푸는 핵심 관찰 한 줄 (50자 이내)",
-  "steps": [
-    { "do": "이 단계에서 하는 일 (25자 이내)",
-      "math": "그 단계의 핵심 수식 ($ 로 감싼 LaTeX, 없으면 빈 문자열)",
-      "why": "왜 이게 빠른지 또는 주의점 (35자 이내, 없으면 빈 문자열)" }
-  ],
-  "answer": "최종 답 ($ 로 감싼 LaTeX)",
-  "seconds": 실전에서 걸릴 예상 초 (정수),
-  "trap": "이 문제에서 자주 하는 실수 한 줄 (40자 이내)",
-  "slower": "정석 풀이로 갔을 때 왜 느린지 한 줄 (40자 이내)"
-}
-steps는 3~6개로 제한한다. 문제가 불분명하면 problem에 무엇이 불분명한지 적고
-steps는 빈 배열, answer는 "판독 불가"로 둔다.`;
+아래 형식 그대로 출력한다. JSON을 쓰지 마라. 백슬래시를 이스케이프하지 마라.
+LaTeX는 평소 쓰는 그대로 적으면 된다.
+
+@@SCRATCH
+(자유롭게 계산하고 검산한다. 학생에게 보이지 않는다)
+@@PROBLEM
+(문제를 한 줄로 정리. 60자 이내)
+@@TOPIC
+(단원명. 예: 미적분 - 접선의 방정식)
+@@INSIGHT
+(이 문제를 푸는 핵심 관찰 한 줄. 60자 이내)
+@@STEP
+@@DO
+(이 단계에서 하는 일. 30자 이내)
+@@MATH
+(그 단계의 핵심 수식. 없으면 비워둔다)
+@@WHY
+(왜 이렇게 가는지 또는 주의점. 40자 이내. 없으면 비워둔다)
+@@STEP
+@@DO
+...
+@@ANSWER
+(최종 답. LaTeX)
+@@CONFIDENCE
+(검산까지 마쳐 확신하면 high, 조건 해석이 갈릴 여지가 있으면 medium, 자신 없으면 low)
+@@SECONDS
+(실전에서 걸릴 예상 초. 숫자만)
+@@TRAP
+(이 문제에서 자주 하는 실수 한 줄. 50자 이내)
+@@SLOWER
+(더 느린 정석 경로가 있다면 왜 느린지 한 줄. 없으면 비워둔다)
+@@END
+
+STEP 블록은 3개에서 8개 사이로 쓴다. 문제가 어려우면 많아도 된다.
+문제를 판독할 수 없거나 풀 수 없으면 ANSWER에 "판독 불가"라고 적고 UNCLEAR 대신
+TRAP에 이유를 쓴다.`;
 
 async function callAnthropic(content, system, maxTokens) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -123,7 +194,7 @@ async function callAnthropic(content, system, maxTokens) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: maxTokens || 3000,
+      max_tokens: maxTokens || 8000,
       system: system || SOLVE_SYSTEM,
       messages: [{ role: "user", content }],
     }),
@@ -193,27 +264,43 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 1단계 — 사진에서 문제를 옮겨 적기만 한다 (풀지 않는다)
+  // 1단계 — 사진을 옮겨 적거나(read), 입력한 텍스트를 정식 표기로 다듬는다(normalize).
+  // 어느 쪽이든 학생이 확인할 "문제 원문"을 만드는 단계이고, 풀지는 않는다.
   if (req.url === "/api/read" && req.method === "POST") {
     try {
       const body = JSON.parse(await readBody(req));
-      if (!body.image) {
-        json(res, 400, { error: "사진이 없습니다. 다시 올려주세요." });
+      const typed = (body.text || "").trim();
+      if (!body.image && !typed) {
+        json(res, 400, { error: "문제를 입력하거나 사진을 올려주세요." });
         return;
       }
-      const content = [
-        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: body.image } },
-        {
+
+      const content = [];
+      let system;
+      if (body.image) {
+        system = READ_SYSTEM;
+        content.push({
+          type: "image",
+          source: { type: "base64", media_type: "image/jpeg", data: body.image },
+        });
+        content.push({
           type: "text",
           text:
             "이 사진에 인쇄된 수학 문제를 규칙에 따라 정확히 옮겨 적어라. 절대 풀지 마라." +
-            (body.hint ? `\n사용자 메모: ${body.hint}` : ""),
-        },
-      ];
-      const text = await callAnthropic(content, READ_SYSTEM, 1500);
+            (typed ? `\n학생 메모: ${typed}` : ""),
+        });
+      } else {
+        system = NORMALIZE_SYSTEM;
+        content.push({
+          type: "text",
+          text: `학생이 입력한 문제다. 정식 표기로 다듬기만 하고 풀지 마라.\n\n${typed}`,
+        });
+      }
+
+      const text = await callAnthropic(content, system, 2000);
       json(res, 200, { text });
     } catch (e) {
-      json(res, e.status || 500, { error: e.message || "사진을 읽지 못했습니다." });
+      json(res, e.status || 500, { error: e.message || "문제를 읽지 못했습니다." });
     }
     return;
   }
@@ -251,7 +338,8 @@ const server = http.createServer(async (req, res) => {
       }
       content.push({ type: "text", text: instruction });
 
-      const text = await callAnthropic(content, SOLVE_SYSTEM, 3000);
+      // 검산까지 하려면 넉넉한 토큰이 필요하다. SCRATCH는 화면에 보이지 않는다.
+      const text = await callAnthropic(content, SOLVE_SYSTEM, 8000);
       json(res, 200, { text });
     } catch (e) {
       json(res, e.status || 500, { error: e.message || "풀이를 가져오지 못했습니다." });

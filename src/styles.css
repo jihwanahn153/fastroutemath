@@ -393,6 +393,37 @@ body::after {
 .chip-static { cursor: default; color: #7d7362; border-style: dashed; }
 .chip-static:hover { border-color: var(--bronze); color: #7d7362; }
 
+
+/* 수식 입력 도우미 */
+.palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.key {
+  background: var(--walnut-deep);
+  border: 1px solid rgba(201, 160, 99, 0.28);
+  color: var(--travertine-dim);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  padding: 6px 11px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+.key:hover { color: var(--brass-hot); border-color: var(--brass); }
+.key:active { background: #241d16; }
+.type-preview {
+  border: 1px solid rgba(201, 160, 99, 0.18);
+  background: rgba(0, 0, 0, 0.26);
+  padding: 14px 16px 16px;
+  font-size: 14px;
+  line-height: 2.5;
+  color: var(--glow);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
 /* 판독 확인 */
 .confirm-head {
   text-align: center;
@@ -418,12 +449,15 @@ body::after {
   margin-bottom: 18px;
 }
 .flag b { color: var(--brass-hot); }
+.flag-answer { margin-top: 18px; margin-bottom: 0; }
 .confirm-grid {
   display: grid;
   grid-template-columns: 280px 1fr;
   gap: 16px;
   align-items: start;
 }
+/* 사진 없이 직접 입력한 경우엔 입력칸이 전체 폭을 쓴다 */
+.confirm-grid.no-shot { grid-template-columns: 1fr; }
 .confirm-shot {
   border: 1px solid rgba(201, 160, 99, 0.22);
   background: #120e0a;

@@ -7,30 +7,50 @@ const JPEG_QUALITY = 0.92;
 const LEDGER_KEY = "fastest-route:ledger";
 const LEDGER_LIMIT = 20;
 
-function stripFence(t) {
-  return (t || "")
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim();
-}
+// 서버는 JSON이 아니라 @@블록 형식으로 답한다.
+// LaTeX의 백슬래시가 JSON 이스케이프와 충돌해 수식이 깨지는 문제를 피하기 위함이다.
+// (\\lim 은 파싱 실패, \\to 는 탭 문자로 변질된다)
+function parseBlocks(raw) {
+  const lines = String(raw || "").split(/\r?\n/);
+  const out = { steps: [] };
+  let key = null;
+  let buf = [];
+  let step = null;
 
-function parseJSONish(text) {
-  const cleaned = stripFence(text);
-  try {
-    return JSON.parse(cleaned);
-  } catch (e) {
-    const m = cleaned.match(/\{[\s\S]*\}/);
-    if (m) {
-      try {
-        return JSON.parse(m[0]);
-      } catch (e2) {
-        return null;
-      }
+  const flush = () => {
+    if (!key) return;
+    const value = buf.join("\n").trim();
+    if (key === "DO" || key === "MATH" || key === "WHY") {
+      if (step) step[key.toLowerCase()] = value;
+    } else {
+      out[key.toLowerCase()] = value;
     }
-    return null;
+    buf = [];
+  };
+
+  for (const line of lines) {
+    const m = line.match(/^\s*@@([A-Z]+)\s*$/);
+    if (m) {
+      flush();
+      const k = m[1];
+      if (k === "STEP") {
+        step = { do: "", math: "", why: "" };
+        out.steps.push(step);
+        key = null;
+      } else if (k === "END") {
+        key = null;
+        break;
+      } else {
+        key = k;
+      }
+      continue;
+    }
+    if (key) buf.push(line);
   }
+  flush();
+
+  out.steps = out.steps.filter((st) => st.do || st.math);
+  return out;
 }
 
 /* ---------- 이미지 처리 ---------- */
@@ -62,13 +82,17 @@ function stretchContrast(ctx, w, h) {
   for (let i = 0; i < d.length; i += 4) {
     hist[(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0]++;
   }
-  const cut = w * h * 0.02;
+  // 글자는 전체 픽셀의 몇 퍼센트뿐이라 어두운 쪽은 아주 조금만 잘라야 한다.
+  // 양쪽을 똑같이 2%씩 자르면 흰 종이에 글자가 적은 사진에서 글자가 통째로 날아간다.
+  const total = w * h;
+  const darkCut = total * 0.003;
+  const brightCut = total * 0.02;
   let acc = 0;
   let lo = 0;
   let hi = 255;
   for (let i = 0; i < 256; i++) {
     acc += hist[i];
-    if (acc > cut) {
+    if (acc > darkCut) {
       lo = i;
       break;
     }
@@ -76,11 +100,12 @@ function stretchContrast(ctx, w, h) {
   acc = 0;
   for (let i = 255; i >= 0; i--) {
     acc += hist[i];
-    if (acc > cut) {
+    if (acc > brightCut) {
       hi = i;
       break;
     }
   }
+  lo = Math.min(lo, 100); // 어두운 기준점이 너무 밝게 잡히면 글자가 뭉개진다
   if (hi <= lo + 8) return; // 분포가 이상하면 손대지 않는다
   const scale = Math.min(255 / (hi - lo), 3); // 과보정으로 종이가 날아가지 않게 제한
   const lut = new Uint8ClampedArray(256);
@@ -112,9 +137,11 @@ async function prepareImage(dataUrl, crop) {
       h = MAX_DIM;
     }
   }
-  // 잘라낸 조각이 작으면 키워서 글자를 크게 전달한다
-  if (w < 900 && h < 900) {
-    const up = Math.min(900 / Math.max(w, h), 2);
+  // 작은 이미지는 키워서 글자를 크게 전달한다.
+  // 해상도가 늘어난다고 정보가 생기진 않지만, 글자가 커지면 비전 모델이 훨씬 잘 읽는다.
+  const longEdge = Math.max(w, h);
+  if (longEdge < MAX_DIM) {
+    const up = Math.min(MAX_DIM / longEdge, 2);
     w = Math.round(w * up);
     h = Math.round(h * up);
   }
@@ -135,6 +162,26 @@ async function prepareImage(dataUrl, crop) {
   }
   return c.toDataURL("image/jpeg", JPEG_QUALITY).split(",")[1];
 }
+
+/* ---------- 수식 입력 도우미 ---------- */
+
+// 라벨, 넣을 LaTeX, 커서를 되돌릴 칸 수
+const SYMBOLS = [
+  ["분수", "\\dfrac{}{}", 3],
+  ["지수", "^{}", 1],
+  ["첨자", "_{}", 1],
+  ["루트", "\\sqrt{}", 1],
+  ["극한", "\\lim_{x \\to 0}", 0],
+  ["적분", "\\int_{}^{}", 4],
+  ["시그마", "\\sum_{k=1}^{n}", 0],
+  ["도함수", "f'(x)", 0],
+  ["∞", "\\infty", 0],
+  ["π", "\\pi", 0],
+  ["θ", "\\theta", 0],
+  ["≥", "\\ge", 0],
+  ["≤", "\\le", 0],
+  ["≠", "\\neq", 0],
+];
 
 /* ---------- 기록 ---------- */
 
@@ -331,10 +378,34 @@ export default function App() {
   const [ledger, setLedger] = useState([]);
   const [showLedger, setShowLedger] = useState(false);
   const fileRef = useRef(null);
+  const textRef = useRef(null);
 
   useEffect(() => {
     setLedger(readLedger());
   }, []);
+
+  // 팔레트 버튼: 커서 자리에 LaTeX를 넣고, 채워야 할 칸 안으로 커서를 옮긴다
+  const insertSymbol = (snippet, back) => {
+    const el = textRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? text.length;
+    const endPos = el.selectionEnd ?? text.length;
+    const before = text.slice(0, start);
+    const after = text.slice(endPos);
+    // 이미 $ 안이 아니면 감싸준다
+    const dollars = (before.match(/\$/g) || []).length;
+    const inMath = dollars % 2 === 1;
+    const piece = inMath ? snippet : `$${snippet}$`;
+    const next = before + piece + after;
+    setText(next);
+    const caret = before.length + piece.length - back - (inMath ? 0 : 1);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  };
+
+  const hasTex = /\$[^$]+\$/.test(text);
 
   const acceptImage = useCallback(async (file) => {
     if (!file || !file.type.startsWith("image/")) return;
@@ -371,29 +442,44 @@ export default function App() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const readPhoto = async () => {
-    if (!srcImage || busy) return;
+  // 사진이든 직접 입력이든 같은 확인 단계를 거친다.
+  // 손으로 친 수식도 해석이 갈릴 수 있어서, 풀기 전에 한 번 눈으로 맞춰보는 편이 정확하다.
+  const readProblem = async () => {
+    if (busy) return;
+    const usingPhoto = tab === "photo";
+    if (usingPhoto && !srcImage) return;
+    if (!usingPhoto && !text.trim()) return;
+
     setBusy("read");
     setError("");
     try {
-      const b64 = await prepareImage(srcImage, crop);
-      setSentImage(b64);
+      let b64 = null;
+      if (usingPhoto) {
+        b64 = await prepareImage(srcImage, crop);
+        setSentImage(b64);
+      } else {
+        setSentImage(null);
+      }
       const res = await fetch("/api/read", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: b64, hint: text.trim() || undefined }),
+        body: JSON.stringify({ image: b64, text: text.trim() || undefined }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `사진을 읽지 못했습니다 (${res.status})`);
-      const parsed = parseJSONish(data.text);
-      if (!parsed || !parsed.transcription) {
-        throw new Error("문제를 알아보지 못했습니다. 문제 영역만 잘라서 다시 올려보세요.");
+      if (!res.ok) throw new Error(data.error || `문제를 읽지 못했습니다 (${res.status})`);
+      const parsed = parseBlocks(data.text);
+      if (!parsed.transcription) {
+        throw new Error(
+          usingPhoto
+            ? "문제를 알아보지 못했습니다. 문제 영역만 잘라서 다시 올려보세요."
+            : "문제를 이해하지 못했습니다. 조금 더 풀어서 써주세요."
+        );
       }
       setReading(parsed);
       setConfirmed(parsed.transcription);
       setStage("confirm");
     } catch (e) {
-      setError(e.message || "사진을 읽지 못했습니다.");
+      setError(e.message || "문제를 읽지 못했습니다.");
     } finally {
       setBusy(null);
     }
@@ -411,10 +497,11 @@ export default function App() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `풀이를 가져오지 못했습니다 (${res.status})`);
-      const parsed = parseJSONish(data.text);
-      if (!parsed || !parsed.answer) {
+      const parsed = parseBlocks(data.text);
+      if (!parsed.answer) {
         throw new Error("풀이를 해석하지 못했습니다. 문제를 조금 더 또렷하게 올려주세요.");
       }
+      delete parsed.scratch; // 계산 과정은 저장하지도 보여주지도 않는다
       setSolution(parsed);
       setStage("result");
       const entry = { id: String(Date.now()), at: new Date().toISOString(), ...parsed };
@@ -428,14 +515,7 @@ export default function App() {
     }
   };
 
-  const submitFromInput = () => {
-    if (tab === "type") {
-      if (!text.trim()) return;
-      solve(text.trim(), null, "");
-    } else {
-      readPhoto();
-    }
-  };
+  const submitFromInput = () => readProblem();
 
   const reset = () => {
     setStage("input");
@@ -545,6 +625,14 @@ export default function App() {
               <Tex className="landing-answer">{solution.answer}</Tex>
             </div>
 
+            {solution.confidence === "low" || solution.confidence === "medium" ? (
+              <div className="flag flag-answer">
+                {solution.confidence === "low"
+                  ? "이 답은 확신도가 낮습니다. 조건을 다시 확인하고 직접 검산해보세요."
+                  : "조건 해석이 갈릴 여지가 있는 문제입니다. 답을 한 번 검산해보세요."}
+              </div>
+            ) : null}
+
             {(solution.trap || solution.slower) && (
               <div className="aside-grid">
                 {solution.trap && (
@@ -571,7 +659,9 @@ export default function App() {
             <div className="meta-rule">읽은 내용 확인</div>
             <h2 className="confirm-head">이렇게 읽었습니다. 맞나요?</h2>
             <p className="confirm-sub">
-              틀린 글자나 빠진 조건이 있으면 고쳐주세요. 여기서 한 번 잡아주면 풀이가 정확해집니다.
+              {sentImage
+                ? "틀린 글자나 빠진 조건이 있으면 고쳐주세요. 여기서 한 번 잡아주면 풀이가 정확해집니다."
+                : "입력하신 내용을 정식 표기로 정리했습니다. 뜻이 달라진 곳이 있으면 고쳐주세요."}
             </p>
 
             {(reading?.confidence === "low" || reading?.unclear) && (
@@ -581,7 +671,7 @@ export default function App() {
               </div>
             )}
 
-            <div className="confirm-grid">
+            <div className={`confirm-grid ${sentImage ? "" : "no-shot"}`}>
               {(sentImage || srcImage) && (
                 <div className="confirm-shot">
                   {/* 실제로 판독에 쓰인(자르기·보정을 거친) 그림을 보여준다 */}
@@ -614,7 +704,7 @@ export default function App() {
               {busy === "solve" ? "가장 빠른 길을 찾는 중" : "이대로 풀기"}
             </button>
             <button className="again" onClick={reset} disabled={Boolean(busy)}>
-              사진 다시 올리기
+              {sentImage ? "사진 다시 올리기" : "다시 입력하기"}
             </button>
           </section>
         ) : (
@@ -640,16 +730,38 @@ export default function App() {
                 {tab === "type" ? (
                   <>
                     <textarea
+                      ref={textRef}
                       className="field"
                       value={text}
                       onChange={(e) => setText(e.target.value)}
-                      placeholder={"예) 함수 f(x)=x^3-3x^2+4 의 극댓값과 극솟값의 합을 구하시오.\n\n수식은 편한 대로 쓰면 됩니다. x^2, √3, ∫, lim 모두 알아봅니다."}
+                      placeholder={"예) 함수 f(x)=x^3-3x^2+4 의 극댓값과 극솟값의 합을 구하시오.\n\n편한 대로 써도 되고, 아래 버튼으로 수식을 넣어도 됩니다."}
                       onKeyDown={(e) => {
                         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitFromInput();
                       }}
                     />
+                    <div className="palette">
+                      {SYMBOLS.map(([label, snippet, back]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          className="key"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => insertSymbol(snippet, back)}
+                          title={snippet}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {hasTex && (
+                      <>
+                        <div className="preview-label">이렇게 읽힙니다</div>
+                        <Tex className="type-preview">{text}</Tex>
+                      </>
+                    )}
                     <p className="hint">
-                      <code>Ctrl</code> + <code>Enter</code> 로 바로 풀이를 시작합니다.
+                      <code>Ctrl</code> + <code>Enter</code> 로 바로 시작합니다. 수식을 넣으면
+                      <code>$</code> 사이가 자동으로 렌더되어 눈으로 확인할 수 있습니다.
                     </p>
                   </>
                 ) : (
@@ -704,9 +816,7 @@ export default function App() {
                     ? "문제를 읽는 중"
                     : busy === "solve"
                     ? "가장 빠른 길을 찾는 중"
-                    : tab === "photo"
-                    ? "문제 읽기"
-                    : "풀이 찾기"}
+                    : "문제 확인하기"}
                 </button>
               </div>
             </div>
