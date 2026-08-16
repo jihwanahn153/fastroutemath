@@ -1,0 +1,580 @@
+:root {
+  --walnut-deep: #1a1410;
+  --walnut: #241d16;
+  --walnut-lift: #2f261d;
+  --bronze: #7d6038;
+  --bronze-dim: #4a3a24;
+  --brass: #c9a063;
+  --brass-hot: #e8c88d;
+  --travertine: #e8dfcc;
+  --travertine-dim: #a89d88;
+  --glow: #f6e8c8;
+  --sconce: rgba(233, 200, 141, 0.14);
+
+  --serif: "Noto Serif KR", Georgia, serif;
+  --sans: "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+
+  --rail: 1px solid rgba(201, 160, 99, 0.22);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--walnut-deep);
+  color: var(--travertine);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font-family: inherit; }
+
+/* 천장 채광 — 사진의 스카이라이트에서 떨어지는 빛 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 62% 40% at 50% -4%, rgba(246, 232, 200, 0.13), transparent 70%),
+    radial-gradient(ellipse 90% 55% at 50% 42%, rgba(201, 160, 99, 0.055), transparent 75%);
+}
+/* 가장자리 비네트 — 시선을 중앙 홀로 모은다 */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(ellipse 78% 68% at 50% 46%, transparent 55%, rgba(10, 7, 5, 0.62) 100%);
+}
+
+/* 좌우 브론즈 콜로네이드 — 사진의 플루티드 기둥열 */
+.colonnade {
+  position: fixed;
+  top: 0; bottom: 0;
+  width: 30px;
+  pointer-events: none;
+  z-index: 1;
+  background-image:
+    /* 세로 홈 */
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 0, 0, 0.42) 0px, rgba(0, 0, 0, 0.42) 1px,
+      rgba(255, 226, 176, 0.11) 2px, rgba(255, 226, 176, 0.11) 4px,
+      rgba(0, 0, 0, 0.28) 5px, rgba(0, 0, 0, 0.28) 6px
+    ),
+    /* 원통 음영 */
+    linear-gradient(
+      90deg,
+      #14100b 0%, #3c2e1c 16%, var(--bronze) 40%,
+      #b08d57 50%, var(--bronze) 60%, #3c2e1c 84%, #14100b 100%
+    );
+  box-shadow: 0 0 26px rgba(0, 0, 0, 0.65);
+}
+.colonnade.left { left: 0; }
+.colonnade.right { right: 0; }
+/* 주두 / 주초 — 기둥 상·하단 띠 */
+.colonnade::before, .colonnade::after {
+  content: "";
+  position: absolute;
+  left: -3px; right: -3px;
+  height: 12px;
+  background: linear-gradient(180deg, var(--brass) 0%, #6d5330 60%, #2a2016 100%);
+  box-shadow: 0 0 12px rgba(201, 160, 99, 0.28);
+}
+.colonnade::before { top: 74px; }
+.colonnade::after { bottom: 54px; transform: scaleY(-1); }
+
+.shell {
+  position: relative;
+  z-index: 2;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- 린텔(헤더) ---------- */
+.lintel {
+  border-bottom: var(--rail);
+  background: linear-gradient(180deg, var(--walnut) 0%, var(--walnut-deep) 100%);
+}
+.lintel-inner {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 16px 32px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.wordmark {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--travertine);
+  margin: 0;
+}
+.wordmark-en {
+  display: block;
+  font-family: var(--sans);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  color: var(--bronze);
+  margin-top: 5px;
+}
+.lintel-link {
+  background: none;
+  border: none;
+  color: var(--travertine-dim);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  padding: 6px 2px;
+  border-bottom: 1px solid transparent;
+}
+.lintel-link:hover { color: var(--brass); border-bottom-color: var(--brass); }
+
+/* ---------- 본문 공통 ---------- */
+.hall {
+  flex: 1;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 32px 72px;
+}
+
+/* ---------- 오큘러스: 시그니처 ---------- */
+.oculus {
+  position: relative;
+  height: 132px;
+  margin: 8px auto 0;
+  max-width: 460px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.oculus-ring {
+  position: absolute;
+  border: 1px solid var(--bronze);
+  border-radius: 50%;
+  opacity: 0.62;
+  box-shadow: inset 0 1px 0 rgba(246, 232, 200, 0.07);
+}
+.oculus-ring.r1 { width: 100%; height: 118px; }
+.oculus-ring.r2 { width: 76%; height: 88px; }
+.oculus-ring.r3 { width: 52%; height: 58px; }
+.oculus-ring.r4 { width: 28%; height: 30px; }
+
+.oculus.lit .oculus-ring {
+  border-color: var(--brass);
+  opacity: 1;
+  box-shadow: 0 0 22px var(--sconce), inset 0 0 18px var(--sconce);
+  animation: ringOn 0.5s ease-out both;
+}
+.oculus.lit .r1 { animation-delay: 0s; }
+.oculus.lit .r2 { animation-delay: 0.12s; }
+.oculus.lit .r3 { animation-delay: 0.24s; }
+.oculus.lit .r4 { animation-delay: 0.36s; }
+
+.oculus.working .oculus-ring {
+  border-color: var(--brass);
+  animation: ringPulse 1.6s ease-in-out infinite;
+}
+.oculus.working .r1 { animation-delay: 0s; }
+.oculus.working .r2 { animation-delay: 0.18s; }
+.oculus.working .r3 { animation-delay: 0.36s; }
+.oculus.working .r4 { animation-delay: 0.54s; }
+
+@keyframes ringOn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes ringPulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; box-shadow: 0 0 20px var(--sconce); }
+}
+
+.oculus-core {
+  position: relative;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--bronze);
+  text-transform: uppercase;
+}
+.oculus.lit .oculus-core, .oculus.working .oculus-core { color: var(--brass-hot); }
+
+/* ---------- 히어로 ---------- */
+.hero { text-align: center; padding: 4px 0 34px; }
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(26px, 4.6vw, 40px);
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  margin: 0 0 12px;
+  color: var(--travertine);
+}
+.hero h1 em {
+  font-style: normal;
+  color: var(--brass);
+}
+.hero p {
+  margin: 0;
+  color: var(--travertine-dim);
+  font-size: 13.5px;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- 입력 패널 ---------- */
+.panel {
+  background: linear-gradient(180deg, var(--walnut-lift) 0%, var(--walnut) 100%);
+  border: var(--rail);
+  border-top: 2px solid var(--bronze);
+}
+.tabs {
+  display: flex;
+  border-bottom: var(--rail);
+}
+.tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--travertine-dim);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  padding: 14px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab:hover { color: var(--travertine); }
+.tab[aria-selected="true"] {
+  color: var(--brass-hot);
+  border-bottom-color: var(--brass);
+  background: rgba(201, 160, 99, 0.05);
+}
+
+.panel-body { padding: 22px; }
+
+.field {
+  width: 100%;
+  background: var(--walnut-deep);
+  border: 1px solid rgba(201, 160, 99, 0.18);
+  color: var(--travertine);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.75;
+  padding: 14px 16px;
+  min-height: 140px;
+  resize: vertical;
+  outline: none;
+}
+.field::placeholder { color: #6b6152; }
+.field:focus { border-color: var(--brass); box-shadow: 0 0 0 3px rgba(201, 160, 99, 0.1); }
+
+.hint {
+  margin: 10px 2px 0;
+  font-size: 11.5px;
+  color: #7d7362;
+  letter-spacing: 0.02em;
+}
+.hint code {
+  font-family: var(--mono);
+  color: var(--bronze);
+  background: rgba(201, 160, 99, 0.08);
+  padding: 1px 5px;
+}
+
+/* 사진 업로드 */
+.dropzone {
+  border: 1px dashed rgba(201, 160, 99, 0.32);
+  background: var(--walnut-deep);
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.dropzone:hover { background: #201a13; border-color: var(--brass); }
+.dropzone-mark {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  color: var(--bronze);
+  margin-bottom: 12px;
+}
+.dropzone-text { font-size: 13.5px; color: var(--travertine); margin: 0 0 5px; }
+.dropzone-sub { font-size: 11.5px; color: #7d7362; margin: 0; }
+.hidden-input { display: none; }
+
+.preview { position: relative; border: 1px solid rgba(201, 160, 99, 0.22); }
+.preview img { width: 100%; display: block; max-height: 340px; object-fit: contain; background: #120e0a; }
+.preview-clear {
+  position: absolute; top: 8px; right: 8px;
+  background: rgba(18, 14, 10, 0.85);
+  border: 1px solid var(--bronze);
+  color: var(--travertine);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+.preview-clear:hover { border-color: var(--brass); color: var(--brass-hot); }
+
+.solve-btn {
+  margin-top: 18px;
+  width: 100%;
+  border: none;
+  padding: 15px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #241d16;
+  background: linear-gradient(180deg, var(--brass-hot) 0%, var(--brass) 55%, #a8834b 100%);
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.08s;
+}
+.solve-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.solve-btn:active:not(:disabled) { transform: translateY(1px); }
+.solve-btn:disabled { opacity: 0.32; cursor: not-allowed; }
+
+.notice {
+  margin-top: 16px;
+  border-left: 2px solid #b4553f;
+  background: rgba(180, 85, 63, 0.1);
+  color: #e5b8ab;
+  font-size: 12.5px;
+  padding: 11px 14px;
+}
+
+/* ---------- 결과: 계단 ---------- */
+.result { animation: rise 0.45s ease-out both; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+.meta-rule {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 6px 0 26px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--bronze);
+  text-transform: uppercase;
+  font-family: var(--mono);
+}
+.meta-rule::before, .meta-rule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(201,160,99,0.35), transparent);
+}
+
+.insight {
+  text-align: center;
+  font-family: var(--serif);
+  font-size: clamp(18px, 3vw, 25px);
+  font-weight: 700;
+  line-height: 1.55;
+  color: var(--glow);
+  margin: 0 auto 8px;
+  max-width: 640px;
+}
+.problem-line {
+  text-align: center;
+  font-size: 13px;
+  color: var(--travertine-dim);
+  margin: 0 auto 34px;
+  max-width: 620px;
+}
+
+/* 계단 — 사진의 중앙 계단. 단이 내려갈수록 안쪽으로 들어간다 */
+.flight { margin-bottom: 30px; }
+.tread {
+  position: relative;
+  border-left: 2px solid var(--bronze);
+  padding: 0 0 22px 22px;
+  animation: tread 0.4s ease-out both;
+}
+.tread:last-child { padding-bottom: 6px; }
+.tread-num {
+  position: absolute;
+  left: -11px;
+  top: 0;
+  width: 20px; height: 20px;
+  background: var(--walnut-deep);
+  border: 1px solid var(--brass);
+  color: var(--brass);
+  font-family: var(--mono);
+  font-size: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.tread-do {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--travertine);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.tread-math {
+  background: rgba(0, 0, 0, 0.26);
+  border-left: 1px solid var(--bronze-dim);
+  padding: 11px 16px;
+  overflow-x: auto;
+  color: var(--glow);
+  font-size: 15px;
+}
+.tread-why {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--travertine-dim);
+  letter-spacing: 0.01em;
+}
+.tread-why::before { content: "— "; color: var(--bronze); }
+
+@keyframes tread { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+
+/* 랜딩 — 계단 아래 조명 받는 대리석 단 */
+.landing {
+  text-align: center;
+  padding: 30px 24px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(233, 200, 141, 0.16), transparent 72%),
+    linear-gradient(180deg, #efe6d2 0%, #ddd2b9 100%);
+  border-top: 2px solid var(--brass-hot);
+  color: #2a2118;
+  animation: rise 0.5s 0.15s ease-out both;
+}
+.landing-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  color: #7d6038;
+  margin-bottom: 12px;
+}
+.landing-answer {
+  font-size: clamp(24px, 5vw, 36px);
+  color: #1a1410;
+  line-height: 1.3;
+}
+.landing-answer .katex { font-size: 1em; }
+
+.aside-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: rgba(201, 160, 99, 0.18);
+  margin-top: 30px;
+  border: var(--rail);
+}
+.aside {
+  background: var(--walnut);
+  padding: 16px 18px;
+}
+.aside-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  color: var(--bronze);
+  margin-bottom: 7px;
+}
+.aside-text { font-size: 12.5px; color: var(--travertine); margin: 0; line-height: 1.65; }
+
+.again {
+  margin-top: 30px;
+  width: 100%;
+  background: none;
+  border: 1px solid var(--bronze);
+  color: var(--travertine-dim);
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  padding: 13px;
+  cursor: pointer;
+}
+.again:hover { border-color: var(--brass); color: var(--brass-hot); }
+
+/* ---------- 기록 ---------- */
+.ledger { border-top: var(--rail); margin-top: 4px; }
+.ledger-empty { font-size: 12.5px; color: #7d7362; padding: 18px 2px; }
+.ledger-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 4px;
+  border-bottom: 1px solid rgba(201, 160, 99, 0.1);
+  cursor: pointer;
+  background: none;
+  border-left: none; border-right: none; border-top: none;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+}
+.ledger-row:hover { background: rgba(201, 160, 99, 0.05); }
+.ledger-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--bronze);
+  flex-shrink: 0;
+  width: 88px;
+}
+.ledger-problem {
+  flex: 1;
+  font-size: 13px;
+  color: var(--travertine);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ledger-secs {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--travertine-dim);
+  flex-shrink: 0;
+}
+
+.foot {
+  border-top: var(--rail);
+  padding: 20px 32px 26px;
+  text-align: center;
+  font-size: 11px;
+  color: #6b6152;
+  letter-spacing: 0.06em;
+}
+
+/* ---------- 반응형 ---------- */
+@media (max-width: 640px) {
+  .colonnade { width: 14px; }
+  .hall { padding: 0 18px 56px; }
+  .lintel-inner { padding: 14px 18px; }
+  .panel-body { padding: 16px; }
+  .aside-grid { grid-template-columns: 1fr; }
+  .oculus { height: 104px; }
+  .oculus-ring.r1 { height: 92px; }
+  .oculus-ring.r2 { height: 70px; }
+  .oculus-ring.r3 { height: 46px; }
+  .oculus-ring.r4 { height: 24px; }
+  .tread { padding-left: 16px; }
+  .ledger-time { width: 62px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}

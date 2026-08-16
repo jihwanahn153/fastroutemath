@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: fastest-route-math
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false          # Render 대시보드에서 직접 입력합니다
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      - key: NODE_VERSION
+        value: "20"

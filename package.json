@@ -1,0 +1,20 @@
+{
+  "name": "fastest-route-math",
+  "version": "1.0.0",
+  "private": true,
+  "description": "수학 문제를 입력하거나 찍어 올리면 가장 빠른 풀이 경로를 제시하는 웹앱",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "node server/index.js",
+    "dev": "node build.mjs --watch & node server/index.js"
+  },
+  "dependencies": {
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.7"
+  },
+  "engines": { "node": ">=18" }
+}
