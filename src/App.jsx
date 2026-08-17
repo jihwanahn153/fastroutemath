@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import Figure from "./Figure.jsx";
 
 // Anthropic 비전은 긴 변 1568px를 넘으면 서버에서 다시 줄인다.
 // 그 경계에 맞춰 보내야 글자가 가장 또렷하게 전달된다.
@@ -12,16 +13,33 @@ const LEDGER_LIMIT = 20;
 // (\\lim 은 파싱 실패, \\to 는 탭 문자로 변질된다)
 function parseBlocks(raw) {
   const lines = String(raw || "").split(/\r?\n/);
-  const out = { steps: [] };
+  const out = { steps: [], concepts: [] };
   let key = null;
   let buf = [];
   let step = null;
+  let concept = null;
+
+  const STEP_KEYS = new Set(["DO", "MATH", "WHY"]);
+  const CONCEPT_KEYS = new Set([
+    "CNAME",
+    "CLEVEL",
+    "CPRE",
+    "CIDEA",
+    "CDEF",
+    "CFORM",
+    "CWHY",
+    "CPROP",
+    "CCARE",
+    "CEX",
+  ]);
 
   const flush = () => {
     if (!key) return;
     const value = buf.join("\n").trim();
-    if (key === "DO" || key === "MATH" || key === "WHY") {
-      if (step) step[key.toLowerCase()] = value;
+    if (STEP_KEYS.has(key) && step) {
+      step[key.toLowerCase()] = value;
+    } else if (CONCEPT_KEYS.has(key) && concept) {
+      concept[key.toLowerCase()] = value;
     } else {
       out[key.toLowerCase()] = value;
     }
@@ -37,6 +55,21 @@ function parseBlocks(raw) {
         step = { do: "", math: "", why: "" };
         out.steps.push(step);
         key = null;
+      } else if (k === "CONCEPT") {
+        concept = {
+          cname: "",
+          clevel: "",
+          cpre: "",
+          cidea: "",
+          cdef: "",
+          cform: "",
+          cwhy: "",
+          cprop: "",
+          ccare: "",
+          cex: "",
+        };
+        out.concepts.push(concept);
+        key = null;
       } else if (k === "END") {
         key = null;
         break;
@@ -50,7 +83,33 @@ function parseBlocks(raw) {
   flush();
 
   out.steps = out.steps.filter((st) => st.do || st.math);
+  out.concepts = out.concepts.filter((c) => c.cname);
   return out;
+}
+
+// "이름|설명" 줄 묶음을 파싱한다 (CPROP, TERM, ADVNEED 공용)
+function parsePairs(raw) {
+  return String(raw || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((line) => {
+      // 수식이 앞에 오는 줄에서는 절댓값 막대를 구분자로 오해하면 안 된다.
+      // 예: $|r|<1$|공비의 크기가 1보다 작아야 한다
+      let from = 0;
+      const dollar = line.indexOf("$");
+      if (dollar !== -1 && !line.slice(0, dollar).includes("|")) {
+        const delim = line.startsWith("$$", dollar) ? "$$" : "$";
+        const close = line.indexOf(delim, dollar + delim.length);
+        if (close !== -1) from = close + delim.length;
+      }
+      const bar = line.indexOf("|", from);
+      if (bar === -1) return { name: line.replace(/^[-•*·]\s*/, ""), desc: "" };
+      return {
+        name: line.slice(0, bar).trim().replace(/^[-•*·]\s*/, ""),
+        desc: line.slice(bar + 1).trim(),
+      };
+    });
 }
 
 /* ---------- 이미지 처리 ---------- */
@@ -339,29 +398,274 @@ function writeLedger(list) {
 
 /* ---------- 수식 렌더 ---------- */
 
-function Tex({ children, className }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (ref.current && window.renderMathInElement) {
+// 모델이 @@MATH 칸에 달러 없이 날 LaTeX만 적어 보내는 일이 잦다.
+//   예: -f(g(1))=f(1)\Rightarrow f(1)=0,\quad f' \text{연속} \Rightarrow f'(1)=0
+// 이런 줄은 구분자가 없어 그대로 글자로 새어 나온다.
+// 그래서 렌더 직전에 "수식으로 보이는 구간"을 찾아 달러로 감싸준다.
+
+const HANGUL = /[\uAC00-\uD7A3\u3131-\u318E]/;
+const HANGUL_RUN = new RegExp(
+  "([\\uAC00-\\uD7A3\\u3131-\\u318E]+(?:[ \\t]+[\\uAC00-\\uD7A3\\u3131-\\u318E]+)*)"
+);
+
+// 한글이 섞여 있어도 \text{연속} 처럼 LaTeX 명령 안에 있는 것은 수식의 일부다.
+const PROTECT = /\\(?:text|textrm|textbf|textit|mathrm|mathbf|operatorname)\s*\{[^{}]*\}/g;
+
+function looksLikeMath(s) {
+  if (!s || !s.trim()) return false;
+  if (/\\[a-zA-Z]/.test(s)) return true; // \frac \to \Rightarrow \quad
+  if (/[\^_]/.test(s)) return true; // 지수·첨자
+  if (/[=<>≤≥≠±×÷∞→]/.test(s)) return true;
+  if (/[a-zA-Z]\s*\(/.test(s)) return true; // f(x), g(1)
+  if (/\d\s*[+\-*/]\s*\d/.test(s)) return true;
+  return false;
+}
+
+function wrapLine(line, preferDisplay) {
+  if (!line.trim()) return line;
+
+  // "- " 같은 글머리 기호는 수식 밖에 둔다 (앞의 마이너스 부호와 구별)
+  const bullet = line.match(/^(\s*[-•*·]\s+)/);
+  const head = bullet ? bullet[1] : "";
+  let body = line.slice(head.length);
+
+  // \text{...} 를 잠시 치워둔다 (안의 한글 때문에 잘리면 안 된다)
+  const stash = [];
+  body = body.replace(PROTECT, (m) => {
+    stash.push(m);
+    return `\u0001${stash.length - 1}\u0001`;
+  });
+
+  const parts = body.split(HANGUL_RUN);
+  let mathRuns = 0;
+  let proseChars = 0;
+
+  const joined = parts
+    .map((p) => {
+      if (!p) return "";
+      if (HANGUL.test(p)) {
+        proseChars += p.trim().length;
+        return p;
+      }
+      if (!looksLikeMath(p)) return p;
+      // 앞뒤 공백과 끝의 문장부호는 수식 밖으로 뺀다
+      const m = p.match(/^(\s*)([\s\S]*?)([\s,.;]*)$/);
+      const inner = m[2];
+      if (!inner) return p;
+      mathRuns += 1;
+      return `${m[1]}$${inner}$${m[3]}`;
+    })
+    .join("");
+
+  let out = head + joined;
+
+  // 줄 전체가 수식 하나면 디스플레이 수식으로 크게 보여준다
+  if (preferDisplay && mathRuns === 1 && proseChars === 0 && !head) {
+    out = out.replace(/^(\s*)\$([\s\S]*)\$([\s,.;]*)$/, "$1$$$$$2$$$$$3");
+  }
+
+  return out.replace(/\u0001(\d+)\u0001/g, (_, i) => stash[Number(i)]);
+}
+
+function autoWrapMath(raw, preferDisplay) {
+  const s = String(raw ?? "");
+  if (!s) return s;
+  // 이미 구분자가 있으면 모델 의도를 존중하고 손대지 않는다
+  if (s.includes("$") || s.includes("\\(") || s.includes("\\[")) return s;
+  return s
+    .split(/\r?\n/)
+    .map((l) => wrapLine(l, preferDisplay))
+    .join("\n");
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+const DELIMS = [
+  { l: "$$", r: "$$", display: true },
+  { l: "\\[", r: "\\]", display: true },
+  { l: "\\(", r: "\\)", display: false },
+  { l: "$", r: "$", display: false },
+];
+
+// auto-render.js 는 React가 관리하는 DOM을 직접 뜯어고쳐서
+// 리렌더가 한 번 일어나면 렌더 결과가 날아간다.
+// 직접 문자열로 만들어 한 번에 넣으면 그런 충돌이 없다.
+function texToHtml(src) {
+  const katex = window.katex;
+  const s = String(src ?? "");
+  if (!katex) return escapeHtml(s).replace(/\n/g, "<br/>");
+
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    let hit = null;
+    for (const d of DELIMS) {
+      if (!s.startsWith(d.l, i)) continue;
+      const end = s.indexOf(d.r, i + d.l.length);
+      if (end === -1) continue;
+      hit = { d, end };
+      break;
+    }
+    if (hit) {
+      const body = s.slice(i + hit.d.l.length, hit.end);
       try {
-        window.renderMathInElement(ref.current, {
-          delimiters: [
-            { left: "$$", right: "$$", display: true },
-            { left: "$", right: "$", display: false },
-            { left: "\\(", right: "\\)", display: false },
-            { left: "\\[", right: "\\]", display: true },
-          ],
+        out += katex.renderToString(body, {
+          displayMode: hit.d.display,
           throwOnError: false,
+          strict: false,
+          trust: false,
         });
       } catch (e) {
-        /* 수식이 깨져도 원문은 남는다 */
+        // 깨진 수식은 원문 그대로 보여준다 (빈칸으로 사라지는 것보다 낫다)
+        out += `<span class="tex-raw">${escapeHtml(body)}</span>`;
       }
+      i = hit.end + hit.d.r.length;
+    } else {
+      const ch = s[i];
+      out += ch === "\n" ? "<br/>" : escapeHtml(ch);
+      i += 1;
     }
-  }, [children]);
+  }
+  return out;
+}
+
+// katex.min.js 는 defer 로 늦게 붙는다.
+// 첫 렌더 때 window.katex 가 없으면 예전 코드는 그냥 포기해 버렸다.
+function useKatexReady() {
+  const [ready, setReady] = useState(() => typeof window !== "undefined" && Boolean(window.katex));
+  useEffect(() => {
+    if (ready) return undefined;
+    let alive = true;
+    const timer = setInterval(() => {
+      if (window.katex && alive) {
+        setReady(true);
+        clearInterval(timer);
+      }
+    }, 40);
+    const giveUp = setTimeout(() => clearInterval(timer), 10000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      clearTimeout(giveUp);
+    };
+  }, [ready]);
+  return ready;
+}
+
+function Tex({ children, className, as: Tag = "div", display = false }) {
+  const ready = useKatexReady();
+  const src = typeof children === "string" ? children : String(children ?? "");
+  const html = useMemo(() => {
+    if (!ready || !src) return "";
+    return texToHtml(autoWrapMath(src, display));
+  }, [ready, src, display]);
+
+  if (!ready || !src) return <Tag className={className}>{src}</Tag>;
+  return <Tag className={className} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+/* ---------- 상위 과정 개념 해부 ---------- */
+
+// 개념 하나를 직관 -> 정의 -> 왜 -> 성질 -> 함정 -> 예 순서로 쌓아 보여준다.
+// 이 순서는 프롬프트가 생성하는 순서와 같아야 한다. 학생이 읽는 순서이기도 하다.
+function ConceptCard({ concept, index }) {
+  const [open, setOpen] = useState(index === 0); // 첫 개념은 펴 둔다
+  const props = parsePairs(concept.cprop);
+
   return (
-    <div ref={ref} className={className}>
-      {children}
-    </div>
+    <article className={`concept ${open ? "is-open" : ""}`}>
+      <button
+        type="button"
+        className="concept-head"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="concept-index">{String(index + 1).padStart(2, "0")}</span>
+        <span className="concept-heading">
+          <Tex as="span" className="concept-name">{concept.cname}</Tex>
+          {concept.clevel && <span className="concept-level">{concept.clevel}</span>}
+        </span>
+        <span className="concept-chevron" aria-hidden="true">
+          {open ? "−" : "+"}
+        </span>
+      </button>
+
+      {open && (
+        <div className="concept-body">
+          {concept.cpre && (
+            <div className="concept-pre">
+              <span className="concept-pre-label">출발점</span>
+              <Tex as="span" className="concept-pre-text">{concept.cpre}</Tex>
+            </div>
+          )}
+
+          {concept.cidea && (
+            <div className="concept-row concept-idea">
+              <div className="concept-row-label">한마디로</div>
+              <Tex className="concept-row-text">{concept.cidea}</Tex>
+            </div>
+          )}
+
+          {concept.cdef && (
+            <div className="concept-row concept-def">
+              <div className="concept-row-label">정확한 정의</div>
+              <Tex className="concept-row-text">{concept.cdef}</Tex>
+            </div>
+          )}
+
+          {parsePairs(concept.cform).length > 0 && (
+            <div className="concept-row concept-form">
+              <div className="concept-row-label">공식과 기호 읽기</div>
+              <ul className="form-list">
+                {parsePairs(concept.cform).map((f, i) => (
+                  <li className="form" key={i}>
+                    <Tex className="form-eq" display>{f.name}</Tex>
+                    {f.desc && <Tex className="form-gloss">{f.desc}</Tex>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {concept.cwhy && (
+            <div className="concept-row">
+              <div className="concept-row-label">왜 이런 정의인가</div>
+              <Tex className="concept-row-text">{concept.cwhy}</Tex>
+            </div>
+          )}
+
+          {props.length > 0 && (
+            <div className="concept-row">
+              <div className="concept-row-label">성질</div>
+              <ul className="prop-list">
+                {props.map((pr, i) => (
+                  <li className="prop" key={i}>
+                    <Tex as="span" className="prop-name">{pr.name}</Tex>
+                    {pr.desc && <Tex as="span" className="prop-desc">{pr.desc}</Tex>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {concept.ccare && (
+            <div className="concept-row concept-care">
+              <div className="concept-row-label">조건을 어기면</div>
+              <Tex className="concept-row-text">{concept.ccare}</Tex>
+            </div>
+          )}
+
+          {concept.cex && (
+            <div className="concept-row concept-ex">
+              <div className="concept-row-label">쉬운 예로 굴려보기</div>
+              <Tex className="concept-row-text">{concept.cex}</Tex>
+            </div>
+          )}
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -515,6 +819,10 @@ export default function App() {
   const [ledger, setLedger] = useState([]);
   const [showLedger, setShowLedger] = useState(false);
   const [withAdvanced, setWithAdvanced] = useState(true);
+  const [advanced, setAdvanced] = useState(null); // 상위 과정 풀이 (따로 받아온다)
+  const [advBusy, setAdvBusy] = useState(false);
+  const [advError, setAdvError] = useState("");
+  const lastAsk = useRef(null); // 상위 과정 재요청에 쓸 문제 원본
   const fileRef = useRef(null);
   const textRef = useRef(null);
 
@@ -623,6 +931,40 @@ export default function App() {
     }
   };
 
+  // 상위 과정 풀이는 분량이 커서 기본 풀이와 한 요청에 묶으면 응답이 통째로 늦어진다.
+  // 답을 먼저 띄우고, 이쪽은 뒤따라 채운다. 실패해도 기본 풀이는 그대로 남는다.
+  const fetchAdvanced = async (base) => {
+    const ask = lastAsk.current;
+    if (!ask || advBusy) return;
+    setAdvBusy(true);
+    setAdvError("");
+    try {
+      const res = await fetch("/api/advanced", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: ask.text,
+          image: ask.image,
+          figureNote: ask.figureNote,
+          topic: (base && base.topic) || "",
+          answer: (base && base.answer) || "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `상위 과정 풀이를 가져오지 못했습니다 (${res.status})`);
+      const parsed = parseBlocks(data.text);
+      if (!parsed.advtitle || parsed.advtitle === "없음" || !parsed.advbody) {
+        setAdvanced({ none: true });
+      } else {
+        setAdvanced(parsed);
+      }
+    } catch (e) {
+      setAdvError(e.message || "상위 과정 풀이를 가져오지 못했습니다.");
+    } finally {
+      setAdvBusy(false);
+    }
+  };
+
   const solve = async (problemText, image, figureNote) => {
     if (busy) return;
     setBusy("solve");
@@ -635,7 +977,6 @@ export default function App() {
           text: problemText,
           image: image || null,
           figureNote: figureNote || "",
-          advanced: withAdvanced,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -646,7 +987,12 @@ export default function App() {
       }
       delete parsed.scratch; // 계산 과정은 저장하지도 보여주지도 않는다
       setSolution(parsed);
+      setAdvanced(null);
+      setAdvError("");
+      lastAsk.current = { text: problemText, image: image || null, figureNote: figureNote || "" };
       setStage("result");
+      // 상위 과정은 답이 뜬 뒤에 따로 받아온다. 답이 늦어지면 안 된다.
+      if (withAdvanced) fetchAdvanced(parsed);
       const entry = { id: String(Date.now()), at: new Date().toISOString(), ...parsed };
       const next = [entry, ...ledger].slice(0, LEDGER_LIMIT);
       setLedger(next);
@@ -663,6 +1009,9 @@ export default function App() {
   const reset = () => {
     setStage("input");
     setSolution(null);
+    setAdvanced(null);
+    setAdvError("");
+    lastAsk.current = null;
     setText("");
     setConfirmed("");
     clearImage();
@@ -746,7 +1095,9 @@ export default function App() {
           <section className="result">
             <div className="meta-rule">{solution.topic || "풀이"}</div>
             <Tex className="insight">{solution.insight}</Tex>
-            <p className="problem-line">{solution.problem}</p>
+            <Tex as="p" className="problem-line">{solution.problem}</Tex>
+
+            {solution.plot && <Figure spec={solution.plot} />}
 
             <div className="flight">
               {(solution.steps || []).map((s, i) => (
@@ -756,9 +1107,9 @@ export default function App() {
                   style={{ marginLeft: `min(${i * 10}px, 5vw)`, animationDelay: `${0.12 + i * 0.07}s` }}
                 >
                   <div className="tread-num">{i + 1}</div>
-                  <p className="tread-do">{s.do}</p>
-                  {s.math ? <Tex className="tread-math">{s.math}</Tex> : null}
-                  {s.why ? <p className="tread-why">{s.why}</p> : null}
+                  <Tex as="p" className="tread-do">{s.do}</Tex>
+                  {s.math ? <Tex className="tread-math" display>{s.math}</Tex> : null}
+                  {s.why ? <Tex as="p" className="tread-why">{s.why}</Tex> : null}
                 </div>
               ))}
             </div>
@@ -781,54 +1132,121 @@ export default function App() {
                 {solution.trap && (
                   <div className="aside">
                     <div className="aside-label">자주 하는 실수</div>
-                    <p className="aside-text">{solution.trap}</p>
+                    <Tex as="p" className="aside-text">{solution.trap}</Tex>
                   </div>
                 )}
                 {solution.slower && (
                   <div className="aside">
                     <div className="aside-label">정석이 느린 이유</div>
-                    <p className="aside-text">{solution.slower}</p>
+                    <Tex as="p" className="aside-text">{solution.slower}</Tex>
                   </div>
                 )}
               </div>
             )}
 
-            {solution.advtitle && solution.advtitle !== "없음" && solution.advbody ? (
-              <section className="extra">
+            {(advBusy || advError || advanced || lastAsk.current) && (
+              <section className="extra extra-adv">
                 <div className="extra-head">
                   <span className="extra-tag">상위 교육과정</span>
-                  <h3 className="extra-title">{solution.advtitle}</h3>
+                  {advanced && !advanced.none ? (
+                    <>
+                      <h3 className="extra-title">{advanced.advtitle}</h3>
+                      {advanced.advgap && <Tex className="extra-gap">{advanced.advgap}</Tex>}
+                    </>
+                  ) : (
+                    <h3 className="extra-title">대학 과정 도구로 다시 보기</h3>
+                  )}
                 </div>
 
-                {solution.advneed && (
-                  <div className="need-list">
-                    {solution.advneed
-                      .split(/\r?\n/)
-                      .map((l) => l.trim())
-                      .filter(Boolean)
-                      .map((line, i) => {
-                        const bar = line.indexOf("|");
-                        const name = bar === -1 ? line : line.slice(0, bar).trim();
-                        const desc = bar === -1 ? "" : line.slice(bar + 1).trim();
-                        return (
-                          <div className="need" key={i}>
-                            <div className="need-name">{name}</div>
-                            {desc && <Tex className="need-desc">{desc}</Tex>}
-                          </div>
-                        );
-                      })}
+                {advBusy && (
+                  <div className="adv-loading">
+                    <span className="adv-spinner" aria-hidden="true" />
+                    개념 설명을 쓰는 중입니다. 분량이 많아 30초쯤 걸립니다.
                   </div>
                 )}
 
-                <Tex className="extra-body">{solution.advbody}</Tex>
-                {solution.advwhy && (
-                  <div className="extra-why">
-                    <div className="aside-label">고교 풀이와의 연결</div>
-                    <Tex className="extra-why-text">{solution.advwhy}</Tex>
+                {advError && !advBusy && (
+                  <div className="adv-fallback">
+                    <p className="adv-fallback-text">{advError}</p>
+                    <button type="button" className="adv-retry" onClick={() => fetchAdvanced(solution)}>
+                      다시 시도
+                    </button>
                   </div>
                 )}
+
+                {!advBusy && !advError && !advanced && (
+                  <div className="adv-fallback">
+                    <p className="adv-fallback-text">
+                      이 문제를 대학 과정 도구로 다시 풀고, 쓰인 개념을 기본부터 설명합니다.
+                    </p>
+                    <button type="button" className="adv-retry" onClick={() => fetchAdvanced(solution)}>
+                      상위 과정으로 보기
+                    </button>
+                  </div>
+                )}
+
+                {advanced && advanced.none && !advBusy && (
+                  <p className="adv-fallback-text">
+                    이 문제는 고교 풀이가 이미 가장 깔끔합니다. 억지로 끌어올 상위 도구가 없습니다.
+                  </p>
+                )}
+
+                {advanced && !advanced.none && (
+                  <>
+                    {(advanced.concepts || []).length > 0 && (
+                      <div className="concepts">
+                        <div className="concept-lead">
+                          <span className="concept-lead-num">
+                            {String(advanced.concepts.length).padStart(2, "0")}
+                          </span>
+                          <span className="concept-lead-text">
+                            아래 풀이를 읽기 전에 필요한 개념입니다. 처음 본다는 전제로 썼습니다.
+                          </span>
+                        </div>
+                        {advanced.concepts.map((c, i) => (
+                          <ConceptCard key={i} concept={c} index={i} />
+                        ))}
+                      </div>
+                    )}
+
+                    {advanced.plot && <Figure spec={advanced.plot} />}
+
+                    <div className="advbody-block">
+                      <div className="aside-label">이 도구로 문제를 푼다</div>
+                      <Tex className="extra-body">{advanced.advbody}</Tex>
+                    </div>
+
+                    {advanced.advwhy && (
+                      <div className="extra-why">
+                        <div className="aside-label">고교 풀이와의 연결</div>
+                        <Tex className="extra-why-text">{advanced.advwhy}</Tex>
+                      </div>
+                    )}
+
+                    {advanced.advmore && (
+                      <div className="extra-more">
+                        <div className="aside-label">이 도구를 알면 또 풀리는 것</div>
+                        <Tex className="extra-why-text">{advanced.advmore}</Tex>
+                      </div>
+                    )}
+
+                    {advanced.term && parsePairs(advanced.term).length > 0 && (
+                      <div className="glossary">
+                        <div className="aside-label">용어 사전 — 교육과정 밖 표현</div>
+                        <dl className="glossary-list">
+                          {parsePairs(advanced.term).map((t, i) => (
+                            <div className="glossary-row" key={i}>
+                              <Tex as="dt" className="glossary-term">{t.name}</Tex>
+                              <Tex as="dd" className="glossary-def">{t.desc}</Tex>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    )}
+                  </>
+                )}
               </section>
-            ) : null}
+            )}
 
             {solution.base && solution.basebody ? (
               <section className="extra">
