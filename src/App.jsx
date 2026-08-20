@@ -1034,8 +1034,6 @@ export default function App() {
 
   return (
     <div className="shell">
-      <div className="colonnade left" aria-hidden="true" />
-      <div className="colonnade right" aria-hidden="true" />
 
       <header className="lintel">
         <div className="lintel-inner">
